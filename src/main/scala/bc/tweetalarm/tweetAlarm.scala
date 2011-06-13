@@ -17,38 +17,8 @@ import twitter4j._
 class TweetAlarm(rules: List[RuleSet], twitter:Twitter, twitterStream: TwitterStream) extends UserStreamListener {
   val log = Logger.get
   twitterStream.addListener(this)
-
-  val users = rules.foldLeft(List[User]()) { (r1,r2) =>
-      			r1++r2.users
-    		  }.distinct
-
-  val accounts = rules.foldLeft(List[String]()) { (r1,r2) =>
-      			r2.account :: r1
-    		  }.distinct
-    		  
-  log.debug("Uniq users:" + users)
-  log.debug("accounts:" + accounts)
-  val ids = twitter.lookupUsers(accounts.toArray:Array[String]).map(_.getId).toArray
-  
-  ids foreach { id => log.debug("id:" + id) }
-  
-  var followedIds:List[Long] = Nil
-  
-  twitter.getFriendsIDs(-1).getIDs foreach {id =>
-    if(!ids.contains(id)) {
-        log.debug("disabling " + id)
-    	twitter.destroyFriendship(id)
-    	twitter.disableNotification(id)
-    } else {
-      followedIds ::= id
-    }
-  }
-    		  
-  ids diff followedIds foreach {id =>
-    log.debug("Notifying for " + id)
-    twitter.createFriendship(id)
-    twitter.enableNotification(id)
-  }
+  		  
+  syncFollowed
   
   twitterStream.user
   log.info("TweetAlarm booted, status listener kicked off.")
@@ -59,8 +29,7 @@ class TweetAlarm(rules: List[RuleSet], twitter:Twitter, twitterStream: TwitterSt
   }
 
   def onStatus(status: Status) {
-    log.info("msg received, ID:" + status.getUser.getId)
-    log.info("text:" + status.getText)
+    log.info("@" + status.getUser.getScreenName + ":" + status.getText)
     
     rules foreach { r =>
       if(status.getUser.getScreenName == r.account) {
@@ -69,6 +38,36 @@ class TweetAlarm(rules: List[RuleSet], twitter:Twitter, twitterStream: TwitterSt
         }
       }
     }
+  }
+  
+  def syncFollowed {
+      val users = rules.foldLeft(List[User]()) { (r1,r2) =>
+      			r1++r2.users
+    		  }.distinct
+
+      val accounts = rules.foldLeft(List[String]()) { (r1,r2) =>
+      			r2.account :: r1
+    		  }.distinct
+
+	  val ids = twitter.lookupUsers(accounts.toArray:Array[String]).map(_.getId).toArray
+	  
+	  var followedIds:List[Long] = Nil
+	  
+	  twitter.getFriendsIDs(-1).getIDs foreach {id =>
+	    if(!ids.contains(id)) {
+	        log.debug("Unfollowing " + id)
+	    	twitter.destroyFriendship(id)
+	    	twitter.disableNotification(id)
+	    } else {
+	      followedIds ::= id
+	    }
+	  }
+	    		  
+	  ids diff followedIds foreach {id =>
+	    log.debug("Following " + id)
+	    twitter.createFriendship(id)
+	    twitter.enableNotification(id)
+	  }
   }
 
   def onDeletionNotice(directMessageId:Long, userId:Long) {
@@ -122,16 +121,14 @@ class TweetAlarm(rules: List[RuleSet], twitter:Twitter, twitterStream: TwitterSt
 
 object TweetAlarm {
   def main(args: Array[String]): Unit = {
-    Configgy.configure("src/main/resources/rules.conf")
+    Configgy.configure("rules.conf")
     val config = Configgy.config
     val log = Logger.get
-    log.info("STUB WORKS!")
     val cfgurator = new Configurator(config)
     val ruleSet = cfgurator.rules
     val twitter = cfgurator.twitter
     val twitterStream = cfgurator.twitterStream(twitter)
     val tweetAlarm = new TweetAlarm(ruleSet, twitter, twitterStream);
-
   }
 }
 
@@ -144,10 +141,10 @@ case class RuleSet(name: String, account: String, rules: List[Regex], var users:
   //only one rule needs to match
   def matches(status:String):Boolean = {
     rules foreach { regex =>
-      log.debug("Applying regex:" + regex)
-      log.debug("Matches:" + regex.findFirstMatchIn(status.toLowerCase).isDefined)
-      if( regex.findFirstMatchIn(status.toLowerCase).isDefined )
+      if( regex.findFirstMatchIn(status.toLowerCase).isDefined ) {
+        log.debug("Rule hit! :" + regex)
         return true
+      }
     }
     
     return false
@@ -155,7 +152,13 @@ case class RuleSet(name: String, account: String, rules: List[Regex], var users:
   
   def tweetUsers(twitter:Twitter, status:String) {
     users foreach { user =>
-      twitter.updateStatus("@" + user.name + " @" + account + " " + status)
+      var msg = "@" + user.name + " @" + account + " " + status
+      if(msg.length>140) {
+        msg = "@" + user.name + " " + status
+        if(msg.length>140) 
+        	msg = msg.substring(0,139)
+      }
+      twitter.updateStatus(msg)
     }
   }
 }
@@ -170,19 +173,15 @@ class Configurator(cfg: Config) {
 
     for (userName <- cfg.getConfigMap("users").get.keys) {
       val user = new User(userName)
-      log.info("Found user: " + user)
 
       for (ruleName <- cfg.getList("users." + userName + ".rule_sets")) {
         breakable {
-          log.info("rule_name:" + ruleName)
 
           ruleSets.filter(_.name == ruleName).foreach { ruleSets =>
             ruleSets.users ::= user
-            log.debug("Found matching ruleset, just adding user and breaking.")
             break
           }
 
-          log.info("Unknown rule_set defined for user")
           val account = cfg.getString("rule_sets." + ruleName + ".account").get
           val ruleRegexes = cfg.getList("rule_sets." + ruleName + ".rules").toList
 
@@ -193,11 +192,11 @@ class Configurator(cfg: Config) {
               log.error("Broken rule - regular expression invalid: " + ex.getMessage)
               System.exit(1337)
           }
-          log.info("Appended ruleSet:" + ruleSets)
+          
         }
       }
     }
-
+  	log.info("RuleSets: " + ruleSets)
     ruleSets
   }
 
