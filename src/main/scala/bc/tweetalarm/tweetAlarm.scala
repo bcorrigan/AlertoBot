@@ -152,13 +152,12 @@ case class RuleSet(name: String, account: String, rules: List[Regex], var users:
   
   def tweetUsers(twitter:Twitter, status:String) {
     users foreach { user =>
-      var msg = "@" + user.name + " @" + account + " " + status
+      var msg = "@" + account + " " + status
       if(msg.length>140) {
-        msg = "@" + user.name + " " + status
-        if(msg.length>140) 
-        	msg = msg.substring(0,139)
+       msg = status
       }
-      twitter.updateStatus(msg)
+
+      twitter.sendDirectMessage(user.name, msg)
     }
   }
 }
