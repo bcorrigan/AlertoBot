@@ -7,12 +7,13 @@ import net.lag.logging.Logger
 import scala.util.matching.Regex
 import scala.util.control.Breaks
 import collection.JavaConversions._
-
 import java.util.regex.PatternSyntaxException
-
 import twitter4j.auth.{ Authorization, AccessToken }
 import twitter4j.conf._
 import twitter4j._
+import java.util.TimeZone
+import java.util.Calendar
+import java.util.TimeZone
 
 class TweetAlarm(rules: List[RuleSet], twitter:Twitter, twitterStream: TwitterStream) extends UserStreamListener {
   val log = Logger.get
@@ -121,8 +122,11 @@ class TweetAlarm(rules: List[RuleSet], twitter:Twitter, twitterStream: TwitterSt
 
 object TweetAlarm {
   def main(args: Array[String]): Unit = {
+    
+    
     Configgy.configure("rules.conf")
     val config = Configgy.config
+    
     val log = Logger.get
     val cfgurator = new Configurator(config)
     val ruleSet = cfgurator.rules
@@ -132,17 +136,29 @@ object TweetAlarm {
   }
 }
 
-case class User(name: String)
+case class User(name: String, tz:java.util.TimeZone)
 
-case class RuleSet(name: String, account: String, rules: List[Regex], var users: List[User]) {
+case class RuleSet(name: String, 
+				   account: String, 
+				   rules: List[Regex], 
+				   negrules: List[Regex],
+				   activeDays: List[String], //if empty, all days are active
+				   activeHours: List[String], //if empty, all hours are active
+				   var users: List[User]) {
   
   val log = Logger.get
   
-  //only one rule needs to match
+  //We don't filter on time here as that is per user
   def matches(status:String):Boolean = {
     rules foreach { regex =>
       if( regex.findFirstMatchIn(status.toLowerCase).isDefined ) {
-        log.debug("Rule hit! :" + regex)
+        log.debug("Rule hit! :" + regex + " Now test negrules.")
+        negrules foreach { negregex => 
+          if(negregex.findFirstMatchIn(status.toLowerCase).isDefined) {
+            log.debug("We have a countervailing negative rule hit - ignoring because of:" + negregex)
+            return false
+          }
+        }
         return true
       }
     }
@@ -150,14 +166,69 @@ case class RuleSet(name: String, account: String, rules: List[Regex], var users:
     return false
   }
   
+  def isReceivingNow(user:User):Boolean = {
+    //inspect activeDays and activeHours to work this out
+    val now = Calendar.getInstance(user.tz)
+    now.setTimeInMillis(System.currentTimeMillis())
+    
+    return hoursMatch(now) && daysMatch(now)
+  }
+  
+  
+  def hoursMatch(now:Calendar):Boolean = {
+    if(activeHours.isEmpty)
+      return true
+    activeHours.map(_.replaceAll("\\s*","").split("-")) foreach { hRange =>
+      val start=mkCalendarAtHour(hRange(0), now.getTimeZone())
+      val end=mkCalendarAtHour(hRange(1), now.getTimeZone())
+      
+      if(now.before(end) && now.after(start))
+        return true
+    }
+    return false;
+  }
+  
+  private def mkCalendarAtHour(hour:String, tz:java.util.TimeZone):Calendar = {
+    val cal=Calendar.getInstance
+    cal.setTimeZone(tz)
+    cal.set(Calendar.HOUR_OF_DAY, Integer.parseInt(hour))
+    cal.set(Calendar.MINUTE,0)
+    cal
+  }
+  
+  def daysMatch(now:Calendar):Boolean = {
+    if(activeDays.isEmpty)
+      return true
+    
+    activeDays foreach { sday =>
+      val calDay = now.get(Calendar.DAY_OF_WEEK)
+      val cfgCalDay = sday match {
+        case "Mon" => Calendar.MONDAY
+        case "Tue" => Calendar.TUESDAY
+        case "Wed" => Calendar.WEDNESDAY
+        case "Thu" => Calendar.THURSDAY
+        case "Fri" => Calendar.FRIDAY
+        case "Sat" => Calendar.SATURDAY
+        case "Sun" => Calendar.SUNDAY
+      }
+      if(cfgCalDay==calDay)
+        return true
+    }
+    return false
+  }
+  
   def tweetUsers(twitter:Twitter, status:String) {
     users foreach { user =>
-      var msg = "@" + account + " " + status
-      if(msg.length>140) {
-       msg = status
+      if(isReceivingNow(user)) {
+	    var msg = "@" + account + " " + status
+	    if(msg.length>140) {
+	     msg = status
+	    }
+	
+	    twitter.sendDirectMessage(user.name, msg)
+      } else {
+        log.debug("Not sending to " + user.name + " cos it is outside their rule time window.")
       }
-
-      twitter.sendDirectMessage(user.name, msg)
     }
   }
 }
@@ -166,12 +237,13 @@ class Configurator(cfg: Config) {
   val log = Logger.get
   val myBreaks = new Breaks
   import myBreaks.{ break, breakable }
-
+  
   def rules: List[RuleSet] = {
     var ruleSets: List[RuleSet] = List()
 
     for (userName <- cfg.getConfigMap("users").get.keys) {
-      val user = new User(userName)
+      val tz = java.util.TimeZone.getTimeZone(cfg.getString("users." + userName + ".timezone").getOrElse("GMT"))
+      val user = new User(userName,tz)
 
       for (ruleName <- cfg.getList("users." + userName + ".rule_sets")) {
         breakable {
@@ -183,9 +255,12 @@ class Configurator(cfg: Config) {
 
           val account = cfg.getString("rule_sets." + ruleName + ".account").get
           val ruleRegexes = cfg.getList("rule_sets." + ruleName + ".rules").toList
-
+          val negRuleRegexes = cfg.getList("rule_sets." + ruleName + ".negative_rules").toList
+          val activeHours = cfg.getList("rule_sets." + ruleName + ".activeHours").toList
+          val activeDays = cfg.getList("rule_sets." + ruleName + ".activeDays").toList
+          
           try {
-            ruleSets ::= new RuleSet(ruleName, account, ruleRegexes.map(_.r), user :: Nil)
+            ruleSets ::= new RuleSet(ruleName, account, ruleRegexes.map(_.r), negRuleRegexes.map(_.r),activeDays,activeHours,user :: Nil)
           } catch {
             case ex: PatternSyntaxException =>
               log.error("Broken rule - regular expression invalid: " + ex.getMessage)
