@@ -149,12 +149,12 @@ case class RuleSet(name: String,
 
   //We don't filter on time here as that is per user
   def matches(status: String): Boolean = {
-    includes foreach { regex =>
-      if (regex.findFirstMatchIn(status.toLowerCase).isDefined) {
-        log.debug("Rule hit! :" + regex + " Now test excludes.")
-        excludes foreach { negregex =>
-          if (negregex.findFirstMatchIn(status.toLowerCase).isDefined) {
-            log.debug("We have a countervailing excludes rule hit - ignoring because of:" + negregex)
+    includes foreach { includeRule =>
+      if (includeRule.findFirstMatchIn(status.toLowerCase).isDefined) {
+        log.debug("Rule hit! :" + includeRule + " Now test excludes.")
+        excludes foreach { excludeRule =>
+          if (excludeRule.findFirstMatchIn(status.toLowerCase).isDefined) {
+            log.debug("We have a countervailing excludes rule hit - ignoring because of:" + excludeRule)
             return false
           }
         }
