@@ -139,10 +139,11 @@ case class User(name: String, tz: java.util.TimeZone)
 
 case class RuleSet(name: String,
   account: String,
-  includes: List[Regex],
-  excludes: List[Regex],
-  activeDays: List[String], //if empty, all days are active
-  activeHours: List[String], //if empty, all hours are active
+  includes: Seq[Regex],
+  excludes: Seq[Regex],
+  activeDays: Seq[String], //if empty, all days are active
+  activeHours: Seq[String], //if empty, all hours are active
+  hoursExcludes: Map[String, Seq[Regex]],
   var users: List[User]) {
 
   val log = Logger.get
@@ -165,23 +166,31 @@ case class RuleSet(name: String,
     return false
   }
 
-  def isReceivingNow(user: User): Boolean = {
+  def isReceivingNow(user: User, status: String): Boolean = {
     //inspect activeDays and activeHours to work this out
     val now = Calendar.getInstance(user.tz)
     now.setTimeInMillis(System.currentTimeMillis())
 
-    return hoursMatch(now) && daysMatch(now)
+    return hoursMatch(now, status) && daysMatch(now)
   }
 
-  def hoursMatch(now: Calendar): Boolean = {
+  def hoursMatch(now: Calendar, status:String): Boolean = {
     if (activeHours.isEmpty)
       return true
     activeHours.map(_.replaceAll("\\s*", "").split("-")) foreach { hRange =>
       val start = mkCalendarAtHour(hRange(0), now.getTimeZone())
       val end = mkCalendarAtHour(hRange(1), now.getTimeZone())
 
-      if (now.before(end) && now.after(start))
-        return true
+      if (now.before(end) && now.after(start)) {
+        if(hoursExcludes.contains(hRange)) {
+          hoursExcludes.get(hRange) foreach { excludeRule =>
+            if(excludeRule.findFirstMatchIn(status.toLowerCase).isDefined) {
+              return false
+            }
+          }
+        }
+        return true 
+      }
     }
     return false;
   }
@@ -217,7 +226,7 @@ case class RuleSet(name: String,
 
   def tweetUsers(twitter: Twitter, status: String) {
     users foreach { user =>
-      if (isReceivingNow(user)) {
+      if (isReceivingNow(user, status)) {
         var msg = "@" + account + " " + status
         if (msg.length > 140) {
           msg = status
@@ -257,8 +266,23 @@ class Configurator(cfg: Config) {
           val activeHours = cfg.getList("rule_sets." + ruleName + ".activeHours").toList
           val activeDays = cfg.getList("rule_sets." + ruleName + ".activeDays").toList
 
+          //there must be nicer way of doing this but damned if i know
+          val hoursExcludes = (activeHours map { hRange =>
+            val rangeExcludes = cfg.getList("rule_sets." + ruleName + ".hoursExclude." + hRange).map(_.r);
+            if (!rangeExcludes.isEmpty) {
+              (hRange, rangeExcludes)
+            } else ("", Nil)
+          } filterNot (_._1.equals(""))).toMap;
+          
           try {
-            ruleSets ::= new RuleSet(ruleName, account, includeRegexes.map(_.r), excludeRegexes.map(_.r), activeDays, activeHours, user :: Nil)
+            ruleSets ::= new RuleSet(ruleName,
+                                     account,
+                                     includeRegexes.map(_.r),
+                                     excludeRegexes.map(_.r),
+                                     activeDays,
+                                     activeHours,
+                                     hoursExcludes,
+                                     user :: Nil)
           } catch {
             case ex: PatternSyntaxException =>
               log.error("Broken rule - regular expression invalid: " + ex.getMessage)
