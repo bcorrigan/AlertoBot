@@ -16,6 +16,7 @@ import java.util.Calendar
 import java.util.TimeZone
 import java.util.GregorianCalendar
 import org.apache.commons.mail.SimpleEmail
+import org.apache.commons.mail.DefaultAuthenticator
 
 class TweetAlarm(rules: List[RuleSet], twitter: Twitter, twitterStream: TwitterStream, mailCfg:MailConfig) extends UserStreamListener {
   val log = Logger.get
@@ -86,11 +87,13 @@ class TweetAlarm(rules: List[RuleSet], twitter: Twitter, twitterStream: TwitterS
         	 var email = new SimpleEmail();
         	 email.setHostName(mailCfg.server);
         	 email.addTo(user.email.get, user.name);
+        	 email.setCharset("UTF-8")
         	 email.setFrom(mailCfg.user, "Alertobot");
-        	 email.setSubject("!" + msg);
-        	 email.setMsg(msg + """     
-        			 \n\n\n\nBroadcasting out of Kilmarnock, Scotland, this is alertobot... the #1 alerting twitter bot on planet earth.
-        	     """);
+        	 email.setSubject(msg);
+        	 email.setMsg(msg + "\n\n\n\nBroadcasting out of Kilmarnock, Scotland, this is alertobot... the #1 alerting twitter bot on planet earth.");
+        	 email.setSmtpPort(587);
+        	 email.setAuthenticator(new DefaultAuthenticator(mailCfg.user, mailCfg.password));
+        	 email.setTLS(true)
         	 email.send();
         }
       } else {
