@@ -15,8 +15,9 @@ import java.util.TimeZone
 import java.util.Calendar
 import java.util.TimeZone
 import java.util.GregorianCalendar
+import org.apache.commons.mail.SimpleEmail
 
-class TweetAlarm(rules: List[RuleSet], twitter: Twitter, twitterStream: TwitterStream) extends UserStreamListener {
+class TweetAlarm(rules: List[RuleSet], twitter: Twitter, twitterStream: TwitterStream, mailCfg:MailConfig) extends UserStreamListener {
   val log = Logger.get
   twitterStream.addListener(this)
 
@@ -36,7 +37,7 @@ class TweetAlarm(rules: List[RuleSet], twitter: Twitter, twitterStream: TwitterS
     rules foreach { r =>
       if (status.getUser.getScreenName == r.account) {
         if (r.matches(status.getText)) {
-          r.tweetUsers(twitter, status.getText)
+          msgUsers(r, status.getText)
         }
       }
     }
@@ -69,6 +70,32 @@ class TweetAlarm(rules: List[RuleSet], twitter: Twitter, twitterStream: TwitterS
       log.debug("Following " + id)
       twitter.createFriendship(id)
       twitter.enableNotification(id)
+    }
+  }
+  
+  def msgUsers(r:RuleSet, status: String) {
+    r.users foreach { user =>
+      if (r.isReceivingNow(user, status)) {
+        var msg = "@" + r.account + " " + status
+        if (!user.hasEmail && msg.length > 140) {
+          msg = status
+        }
+        if(!user.hasEmail)
+        	twitter.sendDirectMessage(user.name, msg)
+        else {
+        	 var email = new SimpleEmail();
+        	 email.setHostName(mailCfg.server);
+        	 email.addTo(user.email.get, user.name);
+        	 email.setFrom(mailCfg.user, "Alertobot");
+        	 email.setSubject("!" + msg);
+        	 email.setMsg(msg + """     
+        			 \n\n\n\nBroadcasting out of Kilmarnock, Scotland, this is alertobot... the #1 alerting twitter bot on planet earth.
+        	     """);
+        	 email.send();
+        }
+      } else {
+        log.debug("Not sending to " + user.name + " cos it is outside their rule time window.")
+      }
     }
   }
 
@@ -129,14 +156,19 @@ object TweetAlarm {
 
     val log = Logger.get
     val cfgurator = new Configurator(config)
-    val ruleSet = cfgurator.rules
     val twitter = cfgurator.twitter
-    val twitterStream = cfgurator.twitterStream(twitter)
-    val tweetAlarm = new TweetAlarm(ruleSet, twitter, twitterStream);
+    val tweetAlarm = new TweetAlarm(cfgurator.rules, 
+    								twitter, 
+    								cfgurator.twitterStream(twitter),
+    								cfgurator.mailCfg);
   }
 }
 
-case class User(name: String, tz: java.util.TimeZone)
+case class User(name: String, tz: java.util.TimeZone, email:Option[String]) {
+  def hasEmail():Boolean = {
+    return email.isDefined
+  }
+}
 
 case class RuleSet(name: String,
   account: String,
@@ -223,21 +255,10 @@ case class RuleSet(name: String,
     return false
   }
 
-  def tweetUsers(twitter: Twitter, status: String) {
-    users foreach { user =>
-      if (isReceivingNow(user, status)) {
-        var msg = "@" + account + " " + status
-        if (msg.length > 140) {
-          msg = status
-        }
 
-        twitter.sendDirectMessage(user.name, msg)
-      } else {
-        log.debug("Not sending to " + user.name + " cos it is outside their rule time window.")
-      }
-    }
-  }
 }
+
+case class MailConfig(server:String, user:String, password:String)
 
 class Configurator(cfg: Config) {
   val log = Logger.get
@@ -249,7 +270,8 @@ class Configurator(cfg: Config) {
 
     for (userName <- cfg.getConfigMap("users").get.keys) {
       val tz = java.util.TimeZone.getTimeZone(cfg.getString("users." + userName + ".timezone").getOrElse("Europe/London"))
-      val user = new User(userName, tz)
+      val email = cfg.getString("users." + userName + ".email")
+      val user = new User(userName, tz, email)
 
       for (ruleName <- cfg.getList("users." + userName + ".rule_sets")) {
         breakable {
@@ -294,6 +316,8 @@ class Configurator(cfg: Config) {
     log.info("RuleSets: " + ruleSets)
     ruleSets
   }
+  
+  
 
   def twitterStream(twitter: Twitter): TwitterStream = {
     new TwitterStreamFactory().getInstance(twitter.getAuthorization())
@@ -310,4 +334,10 @@ class Configurator(cfg: Config) {
 
     new TwitterFactory(cb.build()).getInstance()
   }
+  
+  def mailCfg = new MailConfig(
+    					cfg.getString("mail.server").get,
+    					cfg.getString("mail.user").get,
+    					cfg.getString("mail.password").get
+    				)
 }
