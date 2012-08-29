@@ -14,6 +14,7 @@ import twitter4j._
 import java.util.TimeZone
 import java.util.Calendar
 import java.util.TimeZone
+import java.util.GregorianCalendar
 
 class TweetAlarm(rules: List[RuleSet], twitter: Twitter, twitterStream: TwitterStream) extends UserStreamListener {
   val log = Logger.get
@@ -168,9 +169,7 @@ case class RuleSet(name: String,
 
   def isReceivingNow(user: User, status: String): Boolean = {
     //inspect activeDays and activeHours to work this out
-    val now = Calendar.getInstance(user.tz)
-    now.setTimeInMillis(System.currentTimeMillis())
-
+    val now = new GregorianCalendar(user.tz)
     return hoursMatch(now, status) && daysMatch(now)
   }
 
@@ -196,10 +195,10 @@ case class RuleSet(name: String,
   }
 
   private def mkCalendarAtHour(hour: String, tz: java.util.TimeZone): Calendar = {
-    val cal = Calendar.getInstance
-    cal.setTimeZone(tz)
+    val cal = new GregorianCalendar(tz)
     cal.set(Calendar.HOUR_OF_DAY, Integer.parseInt(hour))
     cal.set(Calendar.MINUTE, 0)
+    
     cal
   }
 
