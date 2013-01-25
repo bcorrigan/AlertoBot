@@ -36,7 +36,7 @@ class TweetAlarm(rules: List[RuleSet], twitter: Twitter, twitterStream: TwitterS
     log.info("@" + status.getUser.getScreenName + ":" + status.getText)
 
     rules foreach { r =>
-      if (status.getUser.getScreenName == r.account) {
+      if (status.getUser.getScreenName.toLowerCase == r.account.toLowerCase) {
         if (r.matches(status.getText)) {
           msgUsers(r, status.getText)
         }
