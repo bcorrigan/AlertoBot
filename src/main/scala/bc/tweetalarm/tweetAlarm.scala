@@ -61,7 +61,7 @@ class TweetAlarm(rules: List[RuleSet], twitter: Twitter, twitterStream: TwitterS
       if (!ids.contains(id)) {
         log.debug("Unfollowing " + id)
         twitter.destroyFriendship(id)
-        twitter.updateFriendship(id,false,false)
+        //twitter.updateFriendship(id,false,false)
       } else {
         followedIds ::= id
       }
@@ -70,7 +70,7 @@ class TweetAlarm(rules: List[RuleSet], twitter: Twitter, twitterStream: TwitterS
     ids diff followedIds foreach { id =>
       log.debug("Following " + id)
       twitter.createFriendship(id)
-      twitter.updateFriendship(id,true,true)
+      //twitter.updateFriendship(id,true,true)
     }
   }
   
