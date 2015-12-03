@@ -1,11 +1,9 @@
 package bc.tweetalarm
 
 import net.lag.configgy.Configgy
-import net.lag.configgy.Config
-import net.lag.configgy.ConfigMap
 import net.lag.logging.Logger
 import scala.util.matching.Regex
-import scala.util.control.Breaks
+
 import collection.JavaConversions._
 import java.util.regex.PatternSyntaxException
 import twitter4j.auth.{ Authorization, AccessToken }
@@ -18,7 +16,7 @@ import java.util.GregorianCalendar
 import org.apache.commons.mail.SimpleEmail
 import org.apache.commons.mail.DefaultAuthenticator
 
-class TweetAlarm(rules: List[RuleSet], twitter: Twitter, twitterStream: TwitterStream, mailCfg:MailConfig) extends UserStreamListener {
+class TweetAlarm(rules: List[RuleSet], twitter: Twitter, twitterStream: TwitterStream, mailCfg: MailConfig) extends UserStreamListener {
   val log = Logger.get
   twitterStream.addListener(this)
 
@@ -73,28 +71,28 @@ class TweetAlarm(rules: List[RuleSet], twitter: Twitter, twitterStream: TwitterS
       //twitter.updateFriendship(id,true,true)
     }
   }
-  
-  def msgUsers(r:RuleSet, status: String) {
+
+  def msgUsers(r: RuleSet, status: String) {
     r.users foreach { user =>
       if (r.isReceivingNow(user, status)) {
         var msg = "@" + r.account + " " + status
         if (!user.hasEmail && msg.length > 140) {
           msg = status
         }
-        if(!user.hasEmail)
-        	twitter.sendDirectMessage(user.name, msg)
+        if (!user.hasEmail)
+          twitter.sendDirectMessage(user.name, msg)
         else {
-        	 var email = new SimpleEmail();
-        	 email.setHostName(mailCfg.server);
-        	 email.addTo(user.email.get, user.name);
-        	 email.setCharset("UTF-8")
-        	 email.setFrom(mailCfg.user, "Alertobot");
-        	 email.setSubject(msg);
-        	 email.setMsg(msg + "\n\n\n\nBroadcasting out of Kilmarnock, Scotland, this is alertobot... the #1 alerting twitter bot on planet earth.");
-        	 email.setSmtpPort(587);
-        	 email.setAuthenticator(new DefaultAuthenticator(mailCfg.user, mailCfg.password));
-        	 email.setTLS(true)
-        	 email.send();
+          var email = new SimpleEmail();
+          email.setHostName(mailCfg.server);
+          email.addTo(user.email.get, user.name);
+          email.setCharset("UTF-8")
+          email.setFrom(mailCfg.user, "Alertobot");
+          email.setSubject(msg);
+          email.setMsg(msg + "\n\n\n\nBroadcasting out of Kilmarnock, Scotland, this is alertobot... the #1 alerting twitter bot on planet earth.");
+          email.setSmtpPort(587);
+          email.setAuthenticator(new DefaultAuthenticator(mailCfg.user, mailCfg.password));
+          email.setTLS(true)
+          email.send();
         }
       } else {
         log.debug("Not sending to " + user.name + " cos it is outside their rule time window.")
@@ -150,7 +148,7 @@ class TweetAlarm(rules: List[RuleSet], twitter: Twitter, twitterStream: TwitterS
 
   def onRetweet(source: twitter4j.User, target: twitter4j.User, retweetedStatus: Status) {}
 
-  def onStallWarning(warning:StallWarning) {}
+  def onStallWarning(warning: StallWarning) {}
 }
 
 object TweetAlarm {
@@ -162,27 +160,27 @@ object TweetAlarm {
     val log = Logger.get
     val cfgurator = new Configurator(config)
     val twitter = cfgurator.twitter
-    val tweetAlarm = new TweetAlarm(cfgurator.rules, 
-    								twitter, 
-    								cfgurator.twitterStream(twitter),
-    								cfgurator.mailCfg);
+    val tweetAlarm = new TweetAlarm(cfgurator.rules,
+      twitter,
+      cfgurator.twitterStream(twitter),
+      cfgurator.mailCfg);
   }
 }
 
-case class User(name: String, tz: java.util.TimeZone, email:Option[String]) {
-  def hasEmail():Boolean = {
+case class User(name: String, tz: java.util.TimeZone, email: Option[String]) {
+  def hasEmail(): Boolean = {
     return email.isDefined
   }
 }
 
 case class RuleSet(name: String,
-  account: String,
-  includes: Seq[Regex],
-  excludes: Seq[Regex],
-  activeDays: Seq[String], //if empty, all days are active
-  activeHours: Seq[String], //if empty, all hours are active
-  hoursExcludes: Map[String, Seq[Regex]],
-  var users: List[User]) {
+    account: String,
+    includes: Seq[Regex],
+    excludes: Seq[Regex],
+    activeDays: Seq[String], //if empty, all days are active
+    activeHours: Seq[String], //if empty, all hours are active
+    hoursExcludes: Map[String, Seq[Regex]],
+    var users: List[User]) {
 
   val log = Logger.get
 
@@ -210,7 +208,7 @@ case class RuleSet(name: String,
     return hoursMatch(now, status) && daysMatch(now)
   }
 
-  def hoursMatch(now: Calendar, status:String): Boolean = {
+  def hoursMatch(now: Calendar, status: String): Boolean = {
     if (activeHours.isEmpty)
       return true
     activeHours.map(_.replaceAll("\\s*", "").split("-")) foreach { hRange =>
@@ -218,14 +216,14 @@ case class RuleSet(name: String,
       val end = mkCalendarAtHour(hRange(1), now.getTimeZone())
 
       if (now.before(end) && now.after(start)) {
-        if(hoursExcludes.contains(hRange)) {
+        if (hoursExcludes.contains(hRange)) {
           hoursExcludes.get(hRange) foreach { excludeRule =>
-            if(excludeRule.findFirstMatchIn(status.toLowerCase).isDefined) {
+            if (excludeRule.findFirstMatchIn(status.toLowerCase).isDefined) {
               return false
             }
           }
         }
-        return true 
+        return true
       }
     }
     return false;
@@ -235,7 +233,7 @@ case class RuleSet(name: String,
     val cal = new GregorianCalendar(tz)
     cal.set(Calendar.HOUR_OF_DAY, Integer.parseInt(hour))
     cal.set(Calendar.MINUTE, 0)
-    
+
     cal
   }
 
@@ -260,89 +258,8 @@ case class RuleSet(name: String,
     return false
   }
 
-
 }
 
-case class MailConfig(server:String, user:String, password:String)
+case class MailConfig(server: String, user: String, password: String)
 
-class Configurator(cfg: Config) {
-  val log = Logger.get
-  val myBreaks = new Breaks
-  import myBreaks.{ break, breakable }
 
-  def rules: List[RuleSet] = {
-    var ruleSets: List[RuleSet] = List()
-
-    for (userName <- cfg.getConfigMap("users").get.keys) {
-      val tz = java.util.TimeZone.getTimeZone(cfg.getString("users." + userName + ".timezone").getOrElse("Europe/London"))
-      val email = cfg.getString("users." + userName + ".email")
-      val user = new User(userName, tz, email)
-
-      for (ruleName <- cfg.getList("users." + userName + ".rule_sets")) {
-        breakable {
-
-          ruleSets.filter(_.name == ruleName).foreach { ruleSets =>
-            ruleSets.users ::= user
-            break
-          }
-
-          val account = cfg.getString("rule_sets." + ruleName + ".account").get
-          val includeRegexes = cfg.getList("rule_sets." + ruleName + ".includes").toList
-          val excludeRegexes = cfg.getList("rule_sets." + ruleName + ".excludes").toList
-          val activeHours = cfg.getList("rule_sets." + ruleName + ".activeHours").toList
-          val activeDays = cfg.getList("rule_sets." + ruleName + ".activeDays").toList
-
-          //there must be nicer way of doing this but damned if i know
-          val hoursExcludes = (activeHours map { hRange =>
-            val rangeExcludes = cfg.getList("rule_sets." + ruleName + ".hoursExclude." + hRange).map(_.r);
-            if (!rangeExcludes.isEmpty) {
-              (hRange, rangeExcludes)
-            } else ("", Nil)
-          } filterNot (_._1.equals(""))).toMap;
-          
-          try {
-            ruleSets ::= new RuleSet(ruleName,
-                                     account,
-                                     includeRegexes.map(_.r),
-                                     excludeRegexes.map(_.r),
-                                     activeDays,
-                                     activeHours,
-                                     hoursExcludes,
-                                     user :: Nil)
-          } catch {
-            case ex: PatternSyntaxException =>
-              log.error("Broken rule - regular expression invalid: " + ex.getMessage)
-              System.exit(1337)
-          }
-
-        }
-      }
-    }
-    log.info("RuleSets: " + ruleSets)
-    ruleSets
-  }
-  
-  
-
-  def twitterStream(twitter: Twitter): TwitterStream = {
-    new TwitterStreamFactory().getInstance(twitter.getAuthorization())
-  }
-
-  def twitter: Twitter = {
-    val cb = new ConfigurationBuilder();
-
-    cb.setDebugEnabled(true)
-      .setOAuthConsumerKey(cfg.getString("twitter.consumerKey").get)
-      .setOAuthConsumerSecret(cfg.getString("twitter.consumerSecret").get)
-      .setOAuthAccessToken(cfg.getString("twitter.accessToken").get)
-      .setOAuthAccessTokenSecret(cfg.getString("twitter.accessTokenSecret").get);
-
-    new TwitterFactory(cb.build()).getInstance()
-  }
-  
-  def mailCfg = new MailConfig(
-    					cfg.getString("mail.server").get,
-    					cfg.getString("mail.user").get,
-    					cfg.getString("mail.password").get
-    				)
-}
